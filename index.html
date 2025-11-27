@@ -1,289 +1,319 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>On-Device AI 物件辨識</title>
-    
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
-
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI 裝置端表情測謊機 (Demo)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.13.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.js"></script>
     <style>
+        /* ------------------- CSS Start ------------------- */
         body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 0;
-            background-color: #000;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            overflow: hidden; /* 防止捲動 */
+            background-color: #f0f4f8;
+            color: #333;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
         }
 
-        /* 視訊與畫布的容器 */
-        #cam-container {
+        header {
+            width: 100%;
+            background-color: #007bff;
+            color: white;
+            padding: 15px 0;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        main {
+            padding: 20px;
+            max-width: 600px;
+            width: 90%;
+            text-align: center;
+        }
+
+        #video-container {
             position: relative;
             width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background: #111;
+            max-width: 400px;
+            margin: 20px auto;
+            border-radius: 12px;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+            overflow: hidden;
         }
 
-        /* 影像與 Canvas 重疊 */
-        video, canvas {
-            position: absolute;
+        #video {
             width: 100%;
-            height: 100%;
-            object-fit: cover; /* 讓畫面填滿手機螢幕 */
+            height: auto;
+            display: block;
         }
 
-        /* 介面覆蓋層 (UI Overlay) */
-        #ui-layer {
+        #overlay {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 10;
-            pointer-events: none; /* 讓點擊穿透到下方 */
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
-            padding: 20px;
-            box-sizing: border-box;
         }
 
-        /* 狀態列 */
-        .status-bar {
-            background: rgba(0, 0, 0, 0.6);
-            color: #00ffcc;
-            padding: 10px 15px;
-            border-radius: 20px;
-            font-size: 14px;
-            backdrop-filter: blur(5px);
-            align-self: flex-start;
-            pointer-events: auto;
+        #status, #result {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: bold;
         }
 
-        /* 啟動按鈕 / 載入畫面 */
-        #start-screen {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.85);
-            z-index: 20;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
-            color: white;
+        #status {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+
+        #result {
+            background-color: #e9ecef;
+            color: #0056b3;
+            min-height: 50px;
+        }
+        
+        .lie-detected {
+            background-color: #ffcccc !important;
+            color: #dc3545 !important;
+            border: 1px solid #f5c6cb !important;
+        }
+
+        .truth-detected {
+            background-color: #d4edda !important;
+            color: #155724 !important;
+            border: 1px solid #c3e6cb !important;
         }
 
         button {
-            background: #007aff;
+            background-color: #28a745;
             color: white;
             border: none;
-            padding: 15px 40px;
-            font-size: 18px;
-            border-radius: 30px;
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-size: 1.0em;
             cursor: pointer;
             margin-top: 20px;
-            font-weight: bold;
-            box-shadow: 0 4px 15px rgba(0,122,255,0.4);
-            transition: transform 0.2s;
+            transition: background-color 0.3s;
         }
 
-        button:active {
-            transform: scale(0.95);
+        button:hover {
+            background-color: #1e7e34;
+        }
+        
+        /* 隱藏模型載入進度條 (可選) */
+        .progress-bar-container {
+            margin-top: 10px;
+            width: 100%;
+            height: 20px;
+            background-color: #e9ecef;
+            border-radius: 10px;
+            overflow: hidden;
+        }
+        
+        .progress-bar {
+            height: 100%;
+            background-color: #007bff;
+            width: 0%;
+            transition: width 0.3s;
         }
 
-        button:disabled {
-            background: #555;
-            color: #888;
-            cursor: not-allowed;
-            box-shadow: none;
-        }
-
-        .loader {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #00ffcc;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin-bottom: 20px;
-            display: none; /* 預設隱藏 */
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        /* 偵測框樣式設定 (由 JS 動態繪製，此處為文字樣式) */
-        .prediction-text {
-            font-weight: bold;
-            text-transform: uppercase;
-        }
+        /* ------------------- CSS End ------------------- */
     </style>
 </head>
 <body>
 
-    <div id="cam-container">
-        <video id="video" playsinline muted autoplay></video>
-        <canvas id="canvas"></canvas>
-    </div>
+    <header>
+        <h1>🤖 裝置端表情測謊演示</h1>
+    </header>
 
-    <div id="ui-layer">
-        <div class="status-bar" id="status">等待啟動...</div>
-    </div>
+    <main>
+        <p>此應用程式利用 **TensorFlow.js** 在您的裝置上執行表情辨識模型，實現**完全離線**的 AI 判斷。</p>
+        
+        <div id="status">
+            載入中... 請稍候 (第一次載入模型需時間)
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progress-bar"></div>
+            </div>
+        </div>
 
-    <div id="start-screen">
-        <div class="loader" id="loader"></div>
-        <h2 id="loading-text">準備載入 AI 模型</h2>
-        <p style="font-size: 0.9em; color: #aaa; margin: 0 20px;">
-            請允許相機權限。<br>模型載入後可離線使用。
-        </p>
-        <button id="btn-start">開始辨識</button>
-    </div>
+        <div id="video-container">
+            <video id="video" autoplay muted playsinline></video>
+            <canvas id="overlay"></canvas>
+        </div>
+
+        <button id="start-btn" disabled>啟動 AI 辨識</button>
+
+        <div id="result">
+            等待啟動...
+        </div>
+    </main>
 
     <script>
-        // DOM 元素
+        /* ------------------- JavaScript Start ------------------- */
+
         const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        const btnStart = document.getElementById('btn-start');
-        const statusText = document.getElementById('status');
-        const startScreen = document.getElementById('start-screen');
-        const loader = document.getElementById('loader');
-        const loadingText = document.getElementById('loading-text');
+        const overlay = document.getElementById('overlay');
+        const statusDiv = document.getElementById('status');
+        const resultDiv = document.getElementById('result');
+        const startBtn = document.getElementById('start-btn');
+        const progressBar = document.getElementById('progress-bar');
+        
+        let detectionInterval;
+        let isModelLoaded = false;
+        
+        // --- 1. 模型路徑設定 ---
+        // face-api.js 的預設模型放在這個資料夾。
+        // 請確保在 GitHub Pages 專案的根目錄下有 'models' 資料夾，並包含以下檔案：
+        // - tiny_face_detector_model-weights_manifest.json (and associated files)
+        // - face_expression_model-weights_manifest.json (and associated files)
+        const MODEL_URL = '/models'; 
+        
+        // --- 2. 測謊邏輯 (請注意：這是演示，非科學依據) ---
+        // 我們假設某些「高強度」或「非典型」的表情可能與欺騙相關
+        const LIE_INDICATOR_EXPRESSIONS = ['surprised', 'fearful', 'disgusted'];
+        const DETECTION_INTERVAL_MS = 300; // 每 300 毫秒進行一次辨識
 
-        let model = undefined;
-        let isDetecting = false;
+        // --- 3. 載入模型和媒體流 ---
 
-        // 1. 初始化：綁定按鈕事件
-        btnStart.addEventListener('click', async () => {
-            btnStart.style.display = 'none'; // 隱藏按鈕
-            loader.style.display = 'block';  // 顯示讀取圈圈
-            loadingText.innerText = "正在載入 AI 模型 (約 2-5 MB)...";
-            
+        async function loadModelsAndStart() {
+            statusDiv.innerHTML = "正在載入模型，請稍候...";
+            startBtn.disabled = true;
+
             try {
-                await initAI();
+                // 載入臉部偵測模型 (TinyFaceDetector)
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                progressBar.style.width = '30%';
+
+                // 載入臉部表情辨識模型
+                await faceapi.nets.faceExpressionNet.loadFromUri(MODEL_URL);
+                progressBar.style.width = '60%';
+                
+                // 載入臉部地標模型 (輔助用，可選)
+                await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+                progressBar.style.width = '100%';
+
+                isModelLoaded = true;
+                statusDiv.innerHTML = "✅ 模型載入完成！現在可切換至**飛航模式**運行。";
+                statusDiv.classList.add('truth-detected');
+                startBtn.disabled = false;
+                startBtn.textContent = "點擊啟動測謊";
+                
+                // 啟動相機
+                startCamera();
+
             } catch (error) {
-                console.error(error);
-                loadingText.innerText = "錯誤: " + error.message;
-                loader.style.display = 'none';
-                btnStart.style.display = 'inline-block';
-                btnStart.innerText = "重試";
+                console.error("載入模型失敗:", error);
+                statusDiv.innerHTML = `❌ 模型載入失敗，請檢查 ${MODEL_URL} 路徑是否正確，或網路連線。錯誤: ${error.message}`;
+                statusDiv.classList.add('lie-detected');
             }
+        }
+        
+        // 啟動相機並取得影片串流
+        async function startCamera() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 320, height: 240 } });
+                video.srcObject = stream;
+            } catch (err) {
+                console.error("無法取得相機權限:", err);
+                statusDiv.innerHTML = "❌ 無法啟動相機，請檢查權限。";
+                statusDiv.classList.add('lie-detected');
+            }
+        }
+
+        // 影片載入完成後，調整 Canvas 大小
+        video.addEventListener('loadedmetadata', () => {
+            const displaySize = { width: video.videoWidth, height: video.videoHeight };
+            faceapi.matchDimensions(overlay, displaySize);
         });
 
-        // 2. 核心初始化函式
-        async function initAI() {
-            // A. 載入 COCO-SSD 模型
-            // 此模型會自動下載並存入瀏覽器快取
-            model = await cocoSsd.load();
-            loadingText.innerText = "模型載入完成，正在啟動相機...";
+        // --- 4. 表情辨識與測謊核心邏輯 ---
 
-            // B. 啟動相機
-            await setupCamera();
-            
-            // C. 調整 Canvas 尺寸並開始偵測
-            startScreen.style.display = 'none'; // 隱藏啟動畫面
-            statusText.innerText = "AI 運作中 - On Device";
-            
-            resizeCanvas();
-            predictLoop();
+        function startDetection() {
+            if (!isModelLoaded) return;
 
-            // 監聽視窗大小改變 (旋轉手機時)
-            window.addEventListener('resize', resizeCanvas);
-        }
+            startBtn.disabled = true;
+            startBtn.textContent = "AI 正在分析...";
+            statusDiv.innerHTML = "AI 正在即時分析您的表情...";
+            statusDiv.classList.remove('truth-detected');
+            statusDiv.classList.remove('lie-detected');
 
-        // 3. 設定相機
-        async function setupCamera() {
-            const constraints = {
-                audio: false,
-                video: {
-                    facingMode: 'environment', // 優先使用後鏡頭
-                    // 為了效能，不要設定太高的解析度，640x480 對手機辨識來說足夠
-                    width: { ideal: 640 }, 
-                    height: { ideal: 480 }
+            detectionInterval = setInterval(async () => {
+                if (video.paused || video.ended) {
+                    clearInterval(detectionInterval);
+                    return;
                 }
-            };
+                
+                // 進行臉部偵測和表情辨識
+                const detections = await faceapi.detectSingleFace(
+                    video, 
+                    new faceapi.TinyFaceDetectorOptions()
+                ).withFaceExpressions();
+                
+                // 清空畫布
+                overlay.getContext('2d').clearRect(0, 0, overlay.width, overlay.height);
 
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            video.srcObject = stream;
+                if (detections) {
+                    // 繪製臉部框線
+                    const resizedDetections = faceapi.resizeResults(detections, { width: video.videoWidth, height: video.videoHeight });
+                    faceapi.draw.drawDetections(overlay, resizedDetections);
+                    
+                    // 取得最有可能的表情
+                    const expressions = detections.expressions;
+                    if (expressions) {
+                        const highestProbabilityExpression = Object.keys(expressions).reduce((a, b) => expressions[a] > expressions[b] ? a : b);
+                        const probability = expressions[highestProbabilityExpression];
 
-            return new Promise((resolve) => {
-                video.onloadedmetadata = () => {
-                    resolve(video);
-                };
-            });
+                        // 判斷是否為「測謊指示表情」
+                        if (LIE_INDICATOR_EXPRESSIONS.includes(highestProbabilityExpression) && probability > 0.6) {
+                            // 判斷為「說謊」
+                            resultDiv.innerHTML = `⚠️ 測謊結果：**欺騙跡象**！檢測到表情：**${highestProbabilityExpression}** (${(probability * 100).toFixed(1)}%)`;
+                            resultDiv.classList.add('lie-detected');
+                            resultDiv.classList.remove('truth-detected');
+                        } else {
+                            // 判斷為「誠實/中性」
+                            resultDiv.innerHTML = `✅ 測謊結果：**誠實或中性**。目前表情：**${highestProbabilityExpression}** (${(probability * 100).toFixed(1)}%)`;
+                            resultDiv.classList.add('truth-detected');
+                            resultDiv.classList.remove('lie-detected');
+                        }
+                    }
+                } else {
+                    resultDiv.innerHTML = '請將臉部對準鏡頭...';
+                    resultDiv.classList.remove('lie-detected');
+                    resultDiv.classList.remove('truth-detected');
+                }
+            }, DETECTION_INTERVAL_MS);
         }
 
-        // 4. 調整 Canvas 尺寸以匹配 Video 顯示大小
-        function resizeCanvas() {
-            canvas.width = video.videoWidth;
-            canvas.height = video.videoHeight;
-            
-            // 因為 CSS 用 object-fit: cover 強制填滿，
-            // 這裡我們讓 Canvas 的解析度跟隨影片原始解析度，
-            // CSS 會負責把 Canvas 拉伸到跟 Video 一樣大。
+        // 停止偵測 (目前應用中不需要，但寫法供參考)
+        /*
+        function stopDetection() {
+            clearInterval(detectionInterval);
+            startBtn.disabled = false;
+            startBtn.textContent = "啟動 AI 辨識";
         }
+        */
 
-        // 5. 預測循環 (Loop)
-        async function predictLoop() {
-            if (!model) return;
+        // --- 5. 事件監聽器與初始化 ---
+        
+        startBtn.addEventListener('click', () => {
+             if (detectionInterval) {
+                 clearInterval(detectionInterval); // 避免重複啟動
+             }
+             startDetection();
+        });
+        
+        // 初始化：載入模型並嘗試啟動相機
+        loadModelsAndStart(); 
 
-            // 進行預測
-            // detect 參數：影像來源, maxNumBoxes, minScore
-            const predictions = await model.detect(video, 20, 0.5);
-
-            // 繪製結果
-            drawPredictions(predictions);
-
-            // 使用 requestAnimationFrame 達到最順暢的 FPS
-            requestAnimationFrame(predictLoop);
-        }
-
-        // 6. 繪製方框與標籤
-        function drawPredictions(predictions) {
-            // 清空畫布
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            const font = "16px sans-serif";
-            ctx.font = font;
-            ctx.textBaseline = "top";
-
-            predictions.forEach(prediction => {
-                const [x, y, width, height] = prediction['bbox'];
-                const text = prediction['class'];
-                const score = Math.round(prediction['score'] * 100) + '%';
-
-                // 畫框框
-                ctx.strokeStyle = "#00FFFF";
-                ctx.lineWidth = 4;
-                ctx.strokeRect(x, y, width, height);
-
-                // 畫背景標籤 (半透明黑底)
-                const textWidth = ctx.measureText(text + " " + score).width;
-                const textHeight = 16; // 根據字體大小估算
-                ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-                ctx.fillRect(x, y, textWidth + 10, textHeight + 10);
-
-                // 畫文字
-                ctx.fillStyle = "#FFFFFF";
-                ctx.fillText(text + " - " + score, x + 5, y + 5);
-            });
-        }
+        /* ------------------- JavaScript End ------------------- */
     </script>
 </body>
 </html>
-
