@@ -1,289 +1,316 @@
 <!DOCTYPE html>
-<html lang="zh-TW">
+<html lang="zh-Hant">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>On-Device AI 物件辨識</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>AI 裝置端深蹲計數器 (MoveNet Demo)</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.13.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/pose-detection@2.0.0/dist/pose-detection.min.js"></script>
     
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@3.11.0/dist/tf.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.2/dist/coco-ssd.min.js"></script>
-
     <style>
+        /* ------------------- CSS Start ------------------- */
         body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             margin: 0;
             padding: 0;
-            background-color: #000;
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            overflow: hidden; /* 防止捲動 */
+            background-color: #f0f4f8;
+            color: #333;
             display: flex;
             flex-direction: column;
             align-items: center;
-            justify-content: center;
-            height: 100vh;
+            min-height: 100vh;
+            touch-action: manipulation; /* 增強手機操作體驗 */
         }
 
-        /* 視訊與畫布的容器 */
-        #cam-container {
+        header {
+            width: 100%;
+            background-color: #007bff;
+            color: white;
+            padding: 15px 0;
+            text-align: center;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        main {
+            padding: 20px;
+            max-width: 600px;
+            width: 90%;
+            text-align: center;
+        }
+
+        #video-container {
             position: relative;
             width: 100%;
-            height: 100%;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            background: #111;
+            max-width: 400px;
+            margin: 20px auto;
+            border-radius: 12px;
+            box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
+            overflow: hidden;
+            background-color: #000;
         }
 
-        /* 影像與 Canvas 重疊 */
-        video, canvas {
-            position: absolute;
+        #video {
             width: 100%;
-            height: 100%;
-            object-fit: cover; /* 讓畫面填滿手機螢幕 */
+            height: auto;
+            display: block;
+            transform: scaleX(-1); /* 鏡像顯示，讓使用者感覺像照鏡子 */
         }
 
-        /* 介面覆蓋層 (UI Overlay) */
-        #ui-layer {
+        #canvas {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 10;
-            pointer-events: none; /* 讓點擊穿透到下方 */
-            display: flex;
-            flex-direction: column;
-            justify-content: space-between;
+        }
+
+        #status, #counter-display {
+            margin-top: 15px;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 1.1em;
+            font-weight: bold;
+        }
+
+        #status {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+        }
+
+        #counter-display {
+            background-color: #d4edda;
+            color: #155724;
+            font-size: 2.5em;
             padding: 20px;
-            box-sizing: border-box;
         }
-
-        /* 狀態列 */
-        .status-bar {
-            background: rgba(0, 0, 0, 0.6);
-            color: #00ffcc;
-            padding: 10px 15px;
-            border-radius: 20px;
-            font-size: 14px;
-            backdrop-filter: blur(5px);
-            align-self: flex-start;
-            pointer-events: auto;
-        }
-
-        /* 啟動按鈕 / 載入畫面 */
-        #start-screen {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: rgba(0, 0, 0, 0.85);
-            z-index: 20;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            text-align: center;
-            color: white;
-        }
-
+        
         button {
-            background: #007aff;
+            background-color: #28a745;
             color: white;
             border: none;
-            padding: 15px 40px;
-            font-size: 18px;
-            border-radius: 30px;
+            padding: 12px 25px;
+            border-radius: 5px;
+            font-size: 1.1em;
             cursor: pointer;
             margin-top: 20px;
-            font-weight: bold;
-            box-shadow: 0 4px 15px rgba(0,122,255,0.4);
-            transition: transform 0.2s;
+            transition: background-color 0.3s;
         }
 
-        button:active {
-            transform: scale(0.95);
+        button:hover {
+            background-color: #1e7e34;
         }
 
-        button:disabled {
-            background: #555;
-            color: #888;
+        .disabled-btn {
+            background-color: #6c757d;
             cursor: not-allowed;
-            box-shadow: none;
         }
-
-        .loader {
-            border: 4px solid #f3f3f3;
-            border-top: 4px solid #00ffcc;
-            border-radius: 50%;
-            width: 40px;
-            height: 40px;
-            animation: spin 1s linear infinite;
-            margin-bottom: 20px;
-            display: none; /* 預設隱藏 */
-        }
-
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-
-        /* 偵測框樣式設定 (由 JS 動態繪製，此處為文字樣式) */
-        .prediction-text {
-            font-weight: bold;
-            text-transform: uppercase;
-        }
+        
+        /* ------------------- CSS End ------------------- */
     </style>
 </head>
 <body>
 
-    <div id="cam-container">
-        <video id="video" playsinline muted autoplay></video>
-        <canvas id="canvas"></canvas>
-    </div>
+    <header>
+        <h1>🏋️ 裝置端 AI 深蹲計數器</h1>
+    </header>
 
-    <div id="ui-layer">
-        <div class="status-bar" id="status">等待啟動...</div>
-    </div>
+    <main>
+        <p>此應用程式利用 **TensorFlow.js MoveNet** 模型，在您的裝置上執行姿勢辨識，實現**完全離線**的運動計數。</p>
+        
+        <div id="status">載入中... 請稍候 (第一次載入模型需時間)</div>
 
-    <div id="start-screen">
-        <div class="loader" id="loader"></div>
-        <h2 id="loading-text">準備載入 AI 模型</h2>
-        <p style="font-size: 0.9em; color: #aaa; margin: 0 20px;">
-            請允許相機權限。<br>模型載入後可離線使用。
-        </p>
-        <button id="btn-start">開始辨識</button>
-    </div>
+        <div id="counter-display">深蹲次數：0</div>
+
+        <div id="video-container">
+            <video id="video" autoplay muted playsinline></video>
+            <canvas id="canvas"></canvas>
+        </div>
+
+        <button id="start-btn" class="disabled-btn" disabled>啟動 AI 偵測</button>
+
+    </main>
 
     <script>
-        // DOM 元素
+        /* ------------------- JavaScript Start ------------------- */
+
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
+        const statusDiv = document.getElementById('status');
+        const counterDisplay = document.getElementById('counter-display');
+        const startBtn = document.getElementById('start-btn');
         const ctx = canvas.getContext('2d');
-        const btnStart = document.getElementById('btn-start');
-        const statusText = document.getElementById('status');
-        const startScreen = document.getElementById('start-screen');
-        const loader = document.getElementById('loader');
-        const loadingText = document.getElementById('loading-text');
-
-        let model = undefined;
-        let isDetecting = false;
-
-        // 1. 初始化：綁定按鈕事件
-        btnStart.addEventListener('click', async () => {
-            btnStart.style.display = 'none'; // 隱藏按鈕
-            loader.style.display = 'block';  // 顯示讀取圈圈
-            loadingText.innerText = "正在載入 AI 模型 (約 2-5 MB)...";
+        
+        let detector;
+        let animationFrameId;
+        let isRunning = false;
+        
+        // --- 1. 深蹲計數狀態機 ---
+        let squatCount = 0;
+        let squatState = 'stand'; // 'stand' (站立) 或 'squat' (深蹲)
+        
+        // --- 2. 模型設定 ---
+        const MODEL_URL = 'https://tfhub.dev/google/tfjs-model/movenet/singlepose/lightning/3';
+        
+        // 取得兩條線段之間夾角的函式 (用於判斷膝蓋角度)
+        function getAngle(keypointA, keypointB, keypointC) {
+            const angleRad = Math.atan2(keypointC.y - keypointB.y, keypointC.x - keypointB.x) - 
+                             Math.atan2(keypointA.y - keypointB.y, keypointA.x - keypointB.x);
+            let angleDeg = Math.abs(angleRad * 180.0 / Math.PI);
             
-            try {
-                await initAI();
-            } catch (error) {
-                console.error(error);
-                loadingText.innerText = "錯誤: " + error.message;
-                loader.style.display = 'none';
-                btnStart.style.display = 'inline-block';
-                btnStart.innerText = "重試";
+            // 確保角度在 0 到 360 度之間
+            if (angleDeg > 180) {
+                angleDeg = 360 - angleDeg;
             }
-        });
-
-        // 2. 核心初始化函式
-        async function initAI() {
-            // A. 載入 COCO-SSD 模型
-            // 此模型會自動下載並存入瀏覽器快取
-            model = await cocoSsd.load();
-            loadingText.innerText = "模型載入完成，正在啟動相機...";
-
-            // B. 啟動相機
-            await setupCamera();
-            
-            // C. 調整 Canvas 尺寸並開始偵測
-            startScreen.style.display = 'none'; // 隱藏啟動畫面
-            statusText.innerText = "AI 運作中 - On Device";
-            
-            resizeCanvas();
-            predictLoop();
-
-            // 監聽視窗大小改變 (旋轉手機時)
-            window.addEventListener('resize', resizeCanvas);
+            return angleDeg;
         }
 
-        // 3. 設定相機
-        async function setupCamera() {
-            const constraints = {
-                audio: false,
-                video: {
-                    facingMode: 'environment', // 優先使用後鏡頭
-                    // 為了效能，不要設定太高的解析度，640x480 對手機辨識來說足夠
-                    width: { ideal: 640 }, 
-                    height: { ideal: 480 }
-                }
-            };
+        // --- 3. 載入模型和媒體流 ---
 
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            video.srcObject = stream;
+        async function loadModelsAndStart() {
+            statusDiv.innerHTML = "正在載入 MoveNet 模型... (第一次載入需時間)";
+            startBtn.disabled = true;
 
-            return new Promise((resolve) => {
-                video.onloadedmetadata = () => {
-                    resolve(video);
+            try {
+                const detectorConfig = {
+                    modelType: poseDetection.SupportedModels.MoveNet,
+                    // 'SinglePose.Lightning' 是最快且最輕量級的版本，適合手機
+                    modelUrl: MODEL_URL, 
+                    detectorParams: {
+                        modelType: poseDetection.MoveNetType.SinglePoseLightning,
+                        enableSmoothing: true // 啟用平滑處理，讓動作更穩定
+                    }
                 };
-            });
+                
+                // 載入姿勢偵測器 (這一步完成後即可離線運行)
+                detector = await poseDetection.createDetector(poseDetection.SupportedModels.MoveNet, detectorConfig);
+
+                statusDiv.innerHTML = "✅ 模型載入完成！現在可切換至**飛航模式**運行。";
+                statusDiv.style.backgroundColor = '#d4edda';
+                statusDiv.style.color = '#155724';
+                startBtn.disabled = false;
+                startBtn.classList.remove('disabled-btn');
+                startBtn.textContent = "點擊啟動偵測";
+                
+                // 啟動相機
+                startCamera();
+
+            } catch (error) {
+                console.error("載入模型失敗:", error);
+                statusDiv.innerHTML = `❌ 模型載入失敗，請檢查網路連線或模型路徑。錯誤: ${error.message}`;
+                statusDiv.style.backgroundColor = '#ffcccc';
+                statusDiv.style.color = '#dc3545';
+            }
+        }
+        
+        // 啟動相機
+        async function startCamera() {
+            try {
+                // 盡量使用後鏡頭 (environment) 以獲得更好的姿勢追蹤，若不成功則使用前鏡頭 (user)
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { 
+                        facingMode: 'user', // 手機預設使用前鏡頭
+                        width: 320, 
+                        height: 240 
+                    } 
+                });
+                video.srcObject = stream;
+            } catch (err) {
+                console.error("無法取得相機權限:", err);
+                statusDiv.innerHTML = "❌ 無法啟動相機，請檢查權限。";
+            }
         }
 
-        // 4. 調整 Canvas 尺寸以匹配 Video 顯示大小
-        function resizeCanvas() {
+        // 影片載入完成後，調整 Canvas 大小
+        video.addEventListener('loadeddata', () => {
             canvas.width = video.videoWidth;
             canvas.height = video.videoHeight;
-            
-            // 因為 CSS 用 object-fit: cover 強制填滿，
-            // 這裡我們讓 Canvas 的解析度跟隨影片原始解析度，
-            // CSS 會負責把 Canvas 拉伸到跟 Video 一樣大。
-        }
+        });
 
-        // 5. 預測循環 (Loop)
-        async function predictLoop() {
-            if (!model) return;
+        // --- 4. 偵測循環與計數核心邏輯 ---
 
-            // 進行預測
-            // detect 參數：影像來源, maxNumBoxes, minScore
-            const predictions = await model.detect(video, 20, 0.5);
+        async function detectAndCount() {
+            if (!detector || video.paused || video.ended || !isRunning) {
+                cancelAnimationFrame(animationFrameId);
+                return;
+            }
 
-            // 繪製結果
-            drawPredictions(predictions);
-
-            // 使用 requestAnimationFrame 達到最順暢的 FPS
-            requestAnimationFrame(predictLoop);
-        }
-
-        // 6. 繪製方框與標籤
-        function drawPredictions(predictions) {
-            // 清空畫布
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-            const font = "16px sans-serif";
-            ctx.font = font;
-            ctx.textBaseline = "top";
-
-            predictions.forEach(prediction => {
-                const [x, y, width, height] = prediction['bbox'];
-                const text = prediction['class'];
-                const score = Math.round(prediction['score'] * 100) + '%';
-
-                // 畫框框
-                ctx.strokeStyle = "#00FFFF";
-                ctx.lineWidth = 4;
-                ctx.strokeRect(x, y, width, height);
-
-                // 畫背景標籤 (半透明黑底)
-                const textWidth = ctx.measureText(text + " " + score).width;
-                const textHeight = 16; // 根據字體大小估算
-                ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-                ctx.fillRect(x, y, textWidth + 10, textHeight + 10);
-
-                // 畫文字
-                ctx.fillStyle = "#FFFFFF";
-                ctx.fillText(text + " - " + score, x + 5, y + 5);
+            // 實施 AI 偵測
+            const poses = await detector.estimatePoses(video, {
+                flipHorizontal: true // 由於 video 已經鏡像，這裡設為 true 以匹配座標
             });
-        }
-    </script>
-</body>
-</html>
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            if (poses && poses.length > 0) {
+                const pose = poses[0]; // 追蹤第一個人
+                
+                // 繪製骨架
+                drawKeypoints(pose.keypoints);
+                drawSkeleton(pose.keypoints);
+                
+                // 進行深蹲計數邏輯
+                countSquat(pose.keypoints);
+            }
 
+            animationFrameId = requestAnimationFrame(detectAndCount);
+        }
+        
+        // 深蹲計數邏輯
+        function countSquat(keypoints) {
+            // 需要的關鍵點索引 (MoveNet 模型定義)
+            const RIGHT_HIP = 12;
+            const RIGHT_KNEE = 14;
+            const RIGHT_ANKLE = 16;
+            
+            const LEFT_HIP = 11;
+            const LEFT_KNEE = 13;
+            const LEFT_ANKLE = 15;
+            
+            // 確保關鍵點的可信度夠高
+            const minConfidence = 0.3; 
+            if (keypoints[RIGHT_HIP].score < minConfidence || keypoints[RIGHT_KNEE].score < minConfidence || keypoints[RIGHT_ANKLE].score < minConfidence) {
+                // 如果偵測不到，則忽略本次計算
+                return;
+            }
+
+            // 計算膝蓋的角度 (大腿-膝蓋-小腿 的夾角)
+            const rightKneeAngle = getAngle(keypoints[RIGHT_HIP], keypoints[RIGHT_KNEE], keypoints[RIGHT_ANKLE]);
+            const leftKneeAngle = getAngle(keypoints[LEFT_HIP], keypoints[LEFT_KNEE], keypoints[LEFT_ANKLE]);
+            
+            // 取兩邊膝蓋角度的平均值作為判斷依據
+            const kneeAngle = (rightKneeAngle + leftKneeAngle) / 2;
+
+            // --- 狀態轉換 ---
+            // 站立狀態：膝蓋角度接近 180 度
+            const STAND_ANGLE = 165; 
+            // 深蹲狀態：膝蓋角度小於 100~120 度
+            const SQUAT_ANGLE = 120; 
+
+            if (kneeAngle < SQUAT_ANGLE && squatState === 'stand') {
+                // 從站立 -> 轉換到深蹲
+                squatState = 'squat';
+                statusDiv.innerHTML = "動作中... (蹲下)";
+                statusDiv.style.backgroundColor = '#fff3cd';
+                statusDiv.style.color = '#856404';
+
+            } else if (kneeAngle > STAND_ANGLE && squatState === 'squat') {
+                // 從深蹲 -> 轉換到站立 -> 完成一次深蹲
+                squatState = 'stand';
+                squatCount++;
+                counterDisplay.innerHTML = `深蹲次數：${squatCount}`;
+                statusDiv.innerHTML = "🎉 動作完成！ (站立)";
+                statusDiv.style.backgroundColor = '#d4edda';
+                statusDiv.style.color = '#155724';
+            }
+        }
+        
+        // --- 5. 繪圖函式 (將結果畫到 Canvas 上) ---
+        
+        // 繪製關鍵點 (關節)
+        function drawKeypoints(keypoints) {
+            ctx.fillStyle = 'red';
+            keypoints.forEach(point => {
+                if (point.score > 0.4) {
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, 5, 0, 2 * Math.
